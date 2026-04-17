@@ -4,8 +4,6 @@
 
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react) ![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite) ![Anthropic](https://img.shields.io/badge/Claude-Sonnet_4-D97757?logo=anthropic) ![License](https://img.shields.io/badge/license-MIT-gold)
 
-**Live demo:** [MairAhmed.github.io/luminary](https://MairAhmed.github.io/luminary/)
-
 ---
 
 ## Overview
