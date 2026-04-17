@@ -49,7 +49,6 @@ export async function runEntryReflection(apiKey, { entryText, faith }) {
     '{ "summary": "...", "themes": [...], "emotion": "...", "emotionScore": { "joy": 0-100, "peace": 0-100, "energy": 0-100, "tension": 0-100 }, "reflection": "...", "prompt": "..." }',
   ].filter(Boolean).join(' ')
 
-  // First call — Claude may call the quote tool
   const response1 = await callAnthropic(apiKey, {
     system,
     messages: [{ role: 'user', content: `Journal entry:\n\n${entryText}` }],
@@ -60,14 +59,10 @@ export async function runEntryReflection(apiKey, { entryText, faith }) {
   let quoteResult = null
   let finalText = ''
 
-  // Handle tool use in the response
   if (response1.stop_reason === 'tool_use') {
     const toolUseBlock = response1.content.find(b => b.type === 'tool_use')
     if (toolUseBlock && toolUseBlock.name === 'find_quote') {
-      // Execute the tool
       quoteResult = await executeQuoteTool(toolUseBlock.input)
-
-      // Second call — give Claude the tool result
       const response2 = await callAnthropic(apiKey, {
         system,
         messages: [
@@ -128,7 +123,36 @@ export async function runWeeklyReflection(apiKey, { entries, faith }) {
   }
 }
 
-// AGENT 3 (Analyst) + AGENT 4 (Pattern Agent) — two-agent pipeline
+// NEW: Monthly / Yearly reflection (same shape as weekly)
+export async function runPeriodReflection(apiKey, { entries, faith, period }) {
+  const faithContext = getFaithContext(faith)
+  const system = [
+    `You are a wise journal analyst. Analyze journal entries over a ${period} for themes, arcs, and growth.`,
+    faithContext,
+    'Your tone should match the timescale — wider, more reflective, and less immediate than a weekly view.',
+    'Respond in JSON (no markdown fences):',
+    '{ "summary": "...", "dominantThemes": [...], "moodArc": "...", "growthObservation": "...", "risingPattern": "...", "closingPrompt": "..." }',
+  ].filter(Boolean).join(' ')
+
+  const text = entries
+    .map((e, i) => `[Entry ${i + 1} — ${new Date(parseInt(e.id) || e.savedAt).toLocaleDateString()}]\n${e.title}\n${e.body}`)
+    .join('\n\n---\n\n')
+
+  const response = await callAnthropic(apiKey, {
+    system,
+    messages: [{ role: 'user', content: `Entries from this ${period}:\n\n${text}` }],
+    maxTokens: 1400,
+  })
+
+  const raw = response.content[0].text
+  try {
+    return JSON.parse(raw.replace(/```json|```/g, '').trim())
+  } catch {
+    return { summary: raw, dominantThemes: [], moodArc: '', growthObservation: '', risingPattern: '', closingPrompt: '' }
+  }
+}
+
+// AGENT 3: Analyst
 export async function runAnalystAgent(apiKey, { entries }) {
   const system = 'You are a clinical journal analyst. Extract raw signals only — no warmth, just data. Respond in JSON (no markdown): { "entryCount": number, "recurringWords": [...], "recurringPeople": [...], "recurringPlaces": [...], "emotionalSpikes": [...], "timePatterns": "...", "avoidedTopics": "...", "writingLengthTrend": "..." }'
   const text = entries.map((e, i) => `[Entry ${i + 1}] ${e.title}\n${e.body}`).join('\n\n---\n\n')
@@ -141,6 +165,7 @@ export async function runAnalystAgent(apiKey, { entries }) {
   catch { return {} }
 }
 
+// AGENT 4: Pattern Agent
 export async function runPatternAgent(apiKey, { analystOutput, faith }) {
   const faithContext = getFaithContext(faith)
   const system = [
@@ -158,4 +183,62 @@ export async function runPatternAgent(apiKey, { analystOutput, faith }) {
   const raw = response.content[0].text
   try { return JSON.parse(raw.replace(/```json|```/g, '').trim()) }
   catch { return {} }
+}
+
+// NEW: Follow-up conversation for a single entry reflection
+export async function runFollowUp(apiKey, { entryText, faith, insight, history, userMessage }) {
+  const faithContext = getFaithContext(faith)
+  const system = [
+    'You are a compassionate journal companion continuing a reflection with the user.',
+    faithContext,
+    'You already gave them an initial reflection. Now they are asking a follow-up. Answer warmly, briefly (2-4 sentences), and with emotional attunement. No JSON — just prose.',
+  ].filter(Boolean).join(' ')
+
+  const context = `Original entry:\n${entryText}\n\nYour initial reflection summary: ${insight?.summary || ''}\nPrompt you gave: ${insight?.prompt || ''}`
+  const messages = [
+    { role: 'user', content: context },
+    { role: 'assistant', content: 'I have your original reflection in mind. What would you like to explore?' },
+    ...(history || []).flatMap(h => [
+      { role: 'user', content: h.user },
+      { role: 'assistant', content: h.assistant },
+    ]),
+    { role: 'user', content: userMessage },
+  ]
+
+  const response = await callAnthropic(apiKey, { system, messages, maxTokens: 600 })
+  return response.content[0]?.text || ''
+}
+
+// NEW: Ask-my-journal chat — grounded in entries
+export async function runJournalChat(apiKey, { entries, faith, history, userMessage }) {
+  const faithContext = getFaithContext(faith)
+  const system = [
+    'You are "Luminary" — a warm, insightful companion who has read the user\'s journal entries.',
+    faithContext,
+    'Answer the user\'s question grounded in what they\'ve written. Reference entries by date when useful. If you truly have no data on something, say so honestly. Keep replies conversational (2-5 sentences). No JSON.',
+  ].filter(Boolean).join(' ')
+
+  // Keep context tight — last 30 entries, truncated
+  const recent = (entries || []).slice(0, 30)
+  const corpus = recent
+    .map(e => {
+      const date = new Date(parseInt(e.id) || e.savedAt).toLocaleDateString()
+      const body = (e.body || '').slice(0, 800)
+      const moodStr = e.mood ? ` [mood: ${e.mood}]` : ''
+      return `[${date}]${moodStr} ${e.title || 'Untitled'}\n${body}`
+    })
+    .join('\n\n---\n\n')
+
+  const messages = [
+    { role: 'user', content: `Here are my recent journal entries:\n\n${corpus}` },
+    { role: 'assistant', content: "I've read them. What would you like to explore?" },
+    ...(history || []).flatMap(h => [
+      { role: 'user', content: h.user },
+      { role: 'assistant', content: h.assistant },
+    ]),
+    { role: 'user', content: userMessage },
+  ]
+
+  const response = await callAnthropic(apiKey, { system, messages, maxTokens: 700 })
+  return response.content[0]?.text || ''
 }

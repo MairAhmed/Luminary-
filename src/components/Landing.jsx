@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-export default function Landing({ onEnter }) {
+export default function Landing({ onEnter, reducedMotion = false }) {
   const canvasRef = useRef(null)
   const [soundOn, setSoundOn] = useState(false)
   const [exiting, setExiting] = useState(false)
@@ -8,11 +8,16 @@ export default function Landing({ onEnter }) {
   const audioRef = useRef({})
   const starsRef = useRef([])
   const animRef = useRef(null)
-  const soundStartedRef = useRef(false)
 
-  // ── Star field
+  // Respect system prefers-reduced-motion if user hasn't overridden
+  const effectiveReducedMotion = reducedMotion ||
+    (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+
+  // ── Star field (skipped if reduced-motion)
   useEffect(() => {
+    if (effectiveReducedMotion) return
     const canvas = canvasRef.current
+    if (!canvas) return
     const ctx = canvas.getContext('2d')
     let W, H
 
@@ -57,22 +62,13 @@ export default function Landing({ onEnter }) {
     }
 
     resize(); makeStars(); draw()
-    window.addEventListener('resize', () => { resize(); makeStars() })
-    return () => { cancelAnimationFrame(animRef.current) }
-  }, [])
-
-  // ── Auto-start sound on first interaction
-  useEffect(() => {
-    const handler = () => {
-      if (soundStartedRef.current) return
-      soundStartedRef.current = true
-      setSoundOn(true)
-      startAmbient()
+    const handleResize = () => { resize(); makeStars() }
+    window.addEventListener('resize', handleResize)
+    return () => {
+      cancelAnimationFrame(animRef.current)
+      window.removeEventListener('resize', handleResize)
     }
-    window.addEventListener('mousemove', handler, { once: true })
-    window.addEventListener('touchstart', handler, { once: true })
-    return () => { window.removeEventListener('mousemove', handler) }
-  }, [])
+  }, [effectiveReducedMotion])
 
   function getCtx() {
     if (!audioRef.current.ctx) {
@@ -102,7 +98,6 @@ export default function Landing({ onEnter }) {
     audioRef.current.master = master
     audioRef.current.ambient = true
 
-    // Schedule chimes
     scheduleChime(ctx, master)
   }
 
@@ -144,27 +139,33 @@ export default function Landing({ onEnter }) {
   }
 
   function handleToggleSound() {
-    if (!soundOn) {
-      setSoundOn(true); startAmbient()
-    } else {
-      setSoundOn(false); stopAmbient()
-    }
+    if (!soundOn) { setSoundOn(true); startAmbient() }
+    else { setSoundOn(false); stopAmbient() }
   }
 
   function handleEnter() {
-    playInkDrop()
-    setInkExpand(true)
-    setTimeout(() => setExiting(true), 500)
-    setTimeout(() => { stopAmbient(); onEnter() }, 1200)
+    if (soundOn) playInkDrop()
+    if (!effectiveReducedMotion) {
+      setInkExpand(true)
+      setTimeout(() => setExiting(true), 500)
+      setTimeout(() => { stopAmbient(); onEnter() }, 1200)
+    } else {
+      stopAmbient()
+      onEnter()
+    }
   }
 
   return (
-    <div className={`landing${exiting ? ' exit' : ''}`}>
-      <canvas ref={canvasRef} id="star-canvas" />
+    <div className={`landing${exiting ? ' exit' : ''}${effectiveReducedMotion ? ' reduced-motion' : ''}`}>
+      {!effectiveReducedMotion && <canvas ref={canvasRef} id="star-canvas" />}
       <div className={`ink-blot${inkExpand ? ' expand' : ''}`} />
 
-      <button className={`sound-toggle${soundOn ? ' active' : ''}`} onClick={handleToggleSound}>
-        <span>{soundOn ? '🔊' : '🔇'}</span>
+      <button
+        className={`sound-toggle${soundOn ? ' active' : ''}`}
+        onClick={handleToggleSound}
+        aria-label={soundOn ? 'Turn ambient sound off' : 'Turn ambient sound on'}
+      >
+        <span aria-hidden="true">{soundOn ? '🔊' : '🔇'}</span>
         <span className="label">{soundOn ? 'Sound On' : 'Sound Off'}</span>
       </button>
 
@@ -176,7 +177,7 @@ export default function Landing({ onEnter }) {
         <p className="landing-subtitle">Write freely. Understand deeply.<br />Your AI companion listens between the lines.</p>
         <button className="landing-cta" onClick={handleEnter}>
           <span>Open Your Journal</span>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
