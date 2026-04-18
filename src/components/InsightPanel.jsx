@@ -161,6 +161,29 @@ function PeriodInsight({ data, period }) {
   )
 }
 
+function FutureLetter({ data }) {
+  const body = (data.body || '').split(/\n{2,}/).filter(Boolean)
+  return (
+    <div className="future-letter">
+      <div className="future-letter-seal" aria-hidden="true">✉</div>
+      <div className="future-letter-meta">
+        Sealed from <em>5 years ahead</em>
+      </div>
+      {data.greeting && <div className="future-letter-greeting">{data.greeting}</div>}
+      {body.map((para, i) => (
+        <p key={i} className="future-letter-para">{para}</p>
+      ))}
+      {data.closing && <p className="future-letter-closing">{data.closing}</p>}
+      {data.signoff && (
+        <div className="future-letter-signoff">
+          <div className="future-letter-dash">— —</div>
+          <div className="future-letter-signature">{data.signoff}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AgentDot({ state }) {
   return <div className={`agent-dot ${state}`} />
 }
@@ -269,6 +292,7 @@ function PatternAgentPanel({ agent1State, agent2State, analystData, patternData 
 export default function InsightPanel({
   open, title, mode, onClose, loading, error,
   insightData, quoteData, quoteLoading, weeklyData, periodData, periodLabel, patternState,
+  futureLetterData,
   followUpHistory, onFollowUp, followUpSending,
   onRetry, showDebug,
 }) {
@@ -343,7 +367,10 @@ export default function InsightPanel({
           {!loading && !error && mode === 'pattern' && patternState && (
             <PatternAgentPanel {...patternState} />
           )}
-          {!loading && !error && !insightData && !weeklyData && !periodData && !patternState && (
+          {!loading && !error && mode === 'future' && futureLetterData && (
+            <FutureLetter data={futureLetterData} />
+          )}
+          {!loading && !error && !insightData && !weeklyData && !periodData && !patternState && !futureLetterData && (
             <div className="loading-state">
               <div className="loading-text">Nothing here yet.</div>
             </div>

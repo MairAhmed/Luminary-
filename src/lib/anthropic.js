@@ -209,6 +209,43 @@ export async function runFollowUp(apiKey, { entryText, faith, insight, history, 
   return response.content[0]?.text || ''
 }
 
+// NEW: Letter from your future self — 5 years ahead, warm, grounded, specific to entries
+export async function runFutureSelfLetter(apiKey, { entries, faith }) {
+  const faithContext = getFaithContext(faith)
+  const system = [
+    'You are the user\'s FUTURE SELF, writing a letter back to them from 5 years in the future.',
+    faithContext,
+    'Rules: Write in first person as their future self, addressing them as "you". Reference real themes, people, and worries from their entries — specific, not generic. Be warm, confident, and honest. Never predict concrete events or outcomes (no "you will marry X" or "you get the job"). Instead, reflect on how their current struggles look from a calmer vantage point, what they underestimated about themselves, and what they can soften right now. Keep it 250–400 words. End with a short, sincere sign-off (not cheesy).',
+    'Return JSON only (no markdown fences):',
+    '{ "greeting": "...", "body": "...", "closing": "...", "signoff": "..." }',
+    'The "body" may contain paragraph breaks using \\n\\n. Do not include the greeting, closing, or signoff inside "body".',
+  ].filter(Boolean).join(' ')
+
+  // Use most recent 15 entries for grounding
+  const recent = (entries || []).slice(0, 15)
+  const corpus = recent
+    .map(e => {
+      const date = new Date(parseInt(e.id) || e.savedAt).toLocaleDateString()
+      const body = (e.body || '').slice(0, 600)
+      const moodStr = e.mood ? ` [mood: ${e.mood}]` : ''
+      return `[${date}]${moodStr} ${e.title || 'Untitled'}\n${body}`
+    })
+    .join('\n\n---\n\n')
+
+  const response = await callAnthropic(apiKey, {
+    system,
+    messages: [{ role: 'user', content: `My recent journal entries:\n\n${corpus}` }],
+    maxTokens: 1200,
+  })
+
+  const raw = response.content[0]?.text || ''
+  try {
+    return JSON.parse(raw.replace(/```json|```/g, '').trim())
+  } catch {
+    return { greeting: '', body: raw, closing: '', signoff: 'Your future self' }
+  }
+}
+
 // NEW: Ask-my-journal chat — grounded in entries
 export async function runJournalChat(apiKey, { entries, faith, history, userMessage }) {
   const faithContext = getFaithContext(faith)

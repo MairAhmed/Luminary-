@@ -11,7 +11,7 @@ import Settings, { ConfirmModal } from './components/Settings.jsx'
 import { storage, DEFAULTS } from './lib/storage.js'
 import {
   runEntryReflection, runWeeklyReflection, runAnalystAgent, runPatternAgent,
-  runPeriodReflection, runFollowUp, runJournalChat,
+  runPeriodReflection, runFollowUp, runJournalChat, runFutureSelfLetter,
 } from './lib/anthropic.js'
 
 // Rotating daily prompts
@@ -81,6 +81,7 @@ export default function App() {
   const [periodData, setPeriodData] = useState(null)
   const [periodLabel, setPeriodLabel] = useState(null)
   const [patternState, setPatternState] = useState(null)
+  const [futureLetterData, setFutureLetterData] = useState(null)
   const [followUpHistory, setFollowUpHistory] = useState([])
   const [followUpSending, setFollowUpSending] = useState(false)
 
@@ -103,6 +104,61 @@ export default function App() {
   const { msg: toastMsg, show: toastShow, toast } = useToast()
 
   const dailyPrompt = useMemo(() => promptForToday(), [])
+
+  // ── "On this day" / Archive memory
+  const memory = useMemo(() => {
+    if (!entries.length) return null
+    const now = new Date()
+    const msPerDay = 1000 * 60 * 60 * 24
+
+    // Strict: same month/day in a prior year
+    const onThisDay = entries
+      .filter(e => !e.archived)
+      .map(e => ({
+        entry: e,
+        date: new Date(parseInt(e.id) || e.savedAt || Date.now()),
+      }))
+      .filter(({ date }) =>
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate() &&
+        date.getFullYear() < now.getFullYear()
+      )
+      .sort((a, b) => b.date - a.date)
+
+    if (onThisDay.length > 0) {
+      const { entry, date } = onThisDay[0]
+      const years = now.getFullYear() - date.getFullYear()
+      return {
+        kind: 'onThisDay',
+        label: years === 1 ? 'A year ago today' : `${years} years ago today`,
+        entry,
+      }
+    }
+
+    // Fallback: any entry from 30+ days ago, pick one deterministically by day
+    const older = entries
+      .filter(e => !e.archived)
+      .map(e => ({
+        entry: e,
+        date: new Date(parseInt(e.id) || e.savedAt || Date.now()),
+      }))
+      .filter(({ date }) => (now - date) / msPerDay >= 30)
+      .sort((a, b) => a.date - b.date)
+
+    if (older.length > 0) {
+      // Deterministic daily pick
+      const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / msPerDay)
+      const pick = older[dayOfYear % older.length]
+      const days = Math.floor((now - pick.date) / msPerDay)
+      return {
+        kind: 'archive',
+        label: days < 60 ? `${days} days ago` : days < 365 ? `${Math.round(days / 30)} months ago` : `${Math.round(days / 365)} year${days >= 730 ? 's' : ''} ago`,
+        entry: pick.entry,
+      }
+    }
+
+    return null
+  }, [entries])
 
   // ── Load user on mount
   useEffect(() => {
@@ -399,6 +455,26 @@ export default function App() {
     }
   }
 
+  async function handleFutureSelfLetter() {
+    if (!apiKey) { toast('Add your Anthropic API key first'); return }
+    const active = entries.filter(e => !e.archived)
+    if (active.length < 2) { toast('Write at least 2 entries first'); return }
+    setPanelTitle('Letter from Your Future Self')
+    setPanelMode('future')
+    setPanelOpen(true)
+    setPanelLoading(true)
+    setPanelError(null)
+    setFutureLetterData(null)
+    try {
+      const data = await runFutureSelfLetter(apiKey, { entries: active, faith })
+      setFutureLetterData(data)
+    } catch (err) {
+      setPanelError(err.message || 'Something went wrong')
+    } finally {
+      setPanelLoading(false)
+    }
+  }
+
   // ── Journal chat
   async function handleChatSend(message) {
     if (!apiKey) return
@@ -475,6 +551,7 @@ export default function App() {
                   <>
                     <button className="btn-insight" onClick={handleWeeklyInsight}>✦ Weekly Insight</button>
                     <button className="btn-insight btn-pattern" onClick={handlePatternAgent}>⬡ Pattern Agent</button>
+                    <button className="btn-insight btn-future" onClick={handleFutureSelfLetter}>✉ Future Self</button>
                   </>
                 )}
               </div>
@@ -490,6 +567,12 @@ export default function App() {
                     <button className="btn-save" onClick={() => handleNewEntry()}>+ Start Writing</button>
                     <button className="btn-insight" onClick={() => setView('calendar')}>Open Calendar</button>
                   </div>
+                  {memory && (
+                    <MemoryCard
+                      memory={memory}
+                      onOpen={() => handleSelectEntry(memory.entry.id)}
+                    />
+                  )}
                   {dailyPrompt && (
                     <div className="daily-prompt">
                       <div className="daily-prompt-label">Today's Prompt</div>
@@ -508,6 +591,8 @@ export default function App() {
                   draft={currentEntry ? null : draft}
                   onDraftChange={currentEntry ? null : handleDraftChange}
                   promptOfDay={dailyPrompt}
+                  memory={!currentEntry ? memory : null}
+                  onOpenMemory={(id) => handleSelectEntry(id)}
                 />
               )
             )}
@@ -556,6 +641,7 @@ export default function App() {
             periodData={periodData}
             periodLabel={periodLabel}
             patternState={patternState}
+            futureLetterData={futureLetterData}
             followUpHistory={followUpHistory}
             onFollowUp={lastReflectCtx ? handleFollowUp : null}
             followUpSending={followUpSending}
@@ -582,5 +668,23 @@ export default function App() {
       {/* Toast */}
       <div className={`toast${toastShow ? ' show' : ''}`} role="status" aria-live="polite">{toastMsg}</div>
     </>
+  )
+}
+
+function MemoryCard({ memory, onOpen }) {
+  if (!memory) return null
+  const { entry, label, kind } = memory
+  const preview = (entry.body || entry.title || '').slice(0, 160).trim()
+  const more = (entry.body || '').length > 160 ? '…' : ''
+  return (
+    <button className={`memory-card ${kind}`} onClick={onOpen} aria-label={`Open memory from ${label}`}>
+      <div className="memory-header">
+        <span className="memory-icon" aria-hidden="true">{kind === 'onThisDay' ? '✦' : '◈'}</span>
+        <span className="memory-label">{kind === 'onThisDay' ? label : `From the archive · ${label}`}</span>
+      </div>
+      {entry.title && <div className="memory-title">{entry.title}</div>}
+      <div className="memory-preview">{preview}{more}</div>
+      <div className="memory-cta">Open entry →</div>
+    </button>
   )
 }

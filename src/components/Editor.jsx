@@ -35,7 +35,7 @@ const TEMPLATES = [
 
 export default function Editor({
   entry, onSave, onReflect, loading, wordGoal = 250,
-  draft, onDraftChange, promptOfDay,
+  draft, onDraftChange, promptOfDay, memory, onOpenMemory,
 }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -210,6 +210,29 @@ export default function Editor({
   return (
     <div className="editor-wrap">
       <div className="editor-area">
+        {!entry && memory && onOpenMemory && (
+          <button
+            className={`memory-card inline ${memory.kind}`}
+            onClick={() => onOpenMemory(memory.entry.id)}
+            aria-label={`Open memory from ${memory.label}`}
+          >
+            <div className="memory-header">
+              <span className="memory-icon" aria-hidden="true">{memory.kind === 'onThisDay' ? '✦' : '◈'}</span>
+              <span className="memory-label">
+                {memory.kind === 'onThisDay' ? memory.label : `From the archive · ${memory.label}`}
+              </span>
+              <span className="memory-cta-mini">Open →</span>
+            </div>
+            {memory.entry.title && (
+              <div className="memory-title-mini">{memory.entry.title}</div>
+            )}
+            <div className="memory-preview-mini">
+              {(memory.entry.body || '').slice(0, 140).trim()}
+              {(memory.entry.body || '').length > 140 ? '…' : ''}
+            </div>
+          </button>
+        )}
+
         <input
           className="entry-title"
           value={title}
