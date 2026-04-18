@@ -37,6 +37,11 @@ Everything lives on your device — entries, settings, drafts, and chat history 
 - Click a day with entries to open; click an empty day to start a new one
 - "Reflect on this month" — AI summary of your month's arc
 
+### Memory Surfacing
+- **On This Day** — if you have an entry from the same date in a prior year, a gold card surfaces above the editor and in the empty state
+- **From the Archive** — fallback flashback to a randomly-chosen entry from 30+ days ago (deterministic per day, sage accent)
+- Click either card to open the original entry — designed to reward long-term use without feeling intrusive
+
 ### Stats
 - **Current streak** + **longest streak** of consecutive writing days
 - Total entries, total words, average words per entry
@@ -64,6 +69,7 @@ The app implements a **multi-agent pipeline** powered by Claude Sonnet:
 | **Weekly Reflection Agent** | Reviews the last 7 entries and identifies emotional arcs, recurring themes, and growth patterns. |
 | **Period Reflection Agent** | Produces monthly and yearly summaries with a wider, more contemplative tone. |
 | **Pattern Agent (2-step pipeline)** | Agent 1 (Analyst) extracts raw signals across all entries. Agent 2 (Pattern Agent) receives those signals and surfaces hidden triggers, blind spots, and strength signals the writer may not see themselves. |
+| **Future Self Letter** | Reads your recent entries and writes a letter back to you as your future self, 5 years ahead. Warm, grounded, references real themes from your entries — never predicts specific events. Rendered with a wax-seal design, drop cap, and handwritten-style signature. |
 | **Ask Your Journal** | Grounded chat that reads your entries and answers questions honestly, referencing dates when useful. |
 
 ### Tool Use (MCP-style)
@@ -220,14 +226,4 @@ This is a real agentic tool-use pattern — Claude is deciding when to search an
 - All journal entries are stored in your browser's `localStorage` only
 - Your Anthropic API key is stored locally and sent only to `api.anthropic.com`
 - No user data is collected, stored on any server, or shared with any third party
-- Clearing your browser data will delete your entries
-
----
-
-## License
-
-MIT — free to use, fork, and build on.
-
----
-
-*Built with Claude by Mair Ahmed*
+- Clearing your b
